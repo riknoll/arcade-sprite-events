@@ -12,17 +12,17 @@ namespace events {
     }
 
     export enum TileEvent {
-        //% block="start overlapping"
+        //% block="starts overlapping"
         StartOverlapping,
-        //% block="stop overlapping"
+        //% block="stops overlapping"
         StopOverlapping,
-        //% block="enters"
+        //% block="fully within"
         Enters,
-        //% block="exits"
+        //% block="no longer fully within"
         Exits,
-        //% block="enters area"
+        //% block="fully within area covered by"
         EntersArea,
-        //% block="exits area"
+        //% block="no longer fully within area covered by"
         ExitsArea
     }
 
@@ -225,7 +225,7 @@ namespace events {
         });
     }
 
-    //% block="on $sprite of kind $kind $event $tile"
+    //% block="on $sprite of kind $kind $event tile $tile"
     //% draggableParameters="reporter"
     //% kind.shadow=spritekind
     //% tile.shadow=tileset_tile_picker

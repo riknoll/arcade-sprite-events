@@ -1,3 +1,5 @@
+//% block="Sprite Events"
+//% color="#03a5fc" icon="\uf005"
 namespace events {
     export const SPRITE_DATA_KEY = "@$_events_sprite_data";
     export const EVENT_ID = 323232;

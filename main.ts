@@ -2,22 +2,11 @@ namespace events {
     export const SPRITE_DATA_KEY = "@$_events_sprite_data";
     export const EVENT_ID = 323232;
 
-    enum Event {
-        SPRITE_START_OVERLAP = 1,
-        SPRITE_STOP_OVERLAP,
-        TILE_START_OVERLAP,
-        TILE_STOP_OVERLAP,
-        TILE_ENTER,
-        TILE_EXIT,
-        TILE_ENTER_AREA,
-        TILE_EXIT_AREA
-    }
-
     export enum SpriteEvent {
         //% block="start overlapping"
-        StartOverlapping = Event.SPRITE_START_OVERLAP,
+        StartOverlapping,
         //% block="stop overlapping"
-        StopOverlapping = Event.SPRITE_STOP_OVERLAP
+        StopOverlapping
     }
 
     export enum TileEvent {
@@ -35,6 +24,12 @@ namespace events {
         ExitsArea
     }
 
+    enum TileFlag {
+        Overlapping = 1 << 0,
+        FullyWithin = 1 << 1,
+        WithinArea = 1 << 2
+    }
+
     type SpriteHandler = (sprite: Sprite, otherSprite: Sprite) => void;
     type TileHandler = (sprite: Sprite) => void;
 
@@ -50,7 +45,7 @@ namespace events {
             this.tileHandlers = [];
             this.trackedSprites = [];
 
-            game.eventContext().registerFrameHandler(scene.ANIMATION_UPDATE_PRIORITY, () => {
+            game.eventContext().registerFrameHandler(scene.PHYSICS_PRIORITY + 1, () => {
                 this.update();
             });
         }
@@ -161,12 +156,6 @@ namespace events {
 
             return undefined;
         }
-    }
-
-    enum TileFlag {
-        Overlapping = 1 << 0,
-        FullyWithin = 1 << 1,
-        WithinArea = 1 << 2
     }
 
     class TileState {

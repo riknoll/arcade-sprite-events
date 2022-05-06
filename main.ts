@@ -5,9 +5,9 @@ namespace events {
     export const SPRITE_DATA_KEY = "@$_events_sprite_data";
 
     export enum SpriteEvent {
-        //% block="start overlapping"
+        //% block="starts overlapping"
         StartOverlapping,
-        //% block="stop overlapping"
+        //% block="stops overlapping"
         StopOverlapping
     }
 

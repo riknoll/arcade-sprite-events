@@ -1,8 +1,8 @@
 //% block="Sprite Events"
 //% color="#03a5fc" icon="\uf005"
+//% groups="['Sprites','Tiles','Regions']"
 namespace events {
     export const SPRITE_DATA_KEY = "@$_events_sprite_data";
-    export const EVENT_ID = 323232;
 
     export enum SpriteEvent {
         //% block="start overlapping"
@@ -50,7 +50,7 @@ namespace events {
     let stateStack: EventState[];
 
     export class Region {
-        constructor(public left: number, public top: number, public right: number, public bottom: number) {}
+        constructor(public left: number, public top: number, public right: number, public bottom: number) { }
 
         equals(other: Region) {
             return other.left === this.left && other.top === this.top && other.right === this.right && other.bottom === this.bottom
@@ -67,6 +67,10 @@ namespace events {
 
             return TileFlag.Overlapping;
         }
+    }
+
+    export class Coordinate {
+        constructor(public x: number, public y: number) { }
     }
 
     class EventState {
@@ -110,6 +114,8 @@ namespace events {
                 }
             }
 
+            this.doRegionUpdate();
+
             this.pruneTrackedSprites();
         }
 
@@ -132,8 +138,6 @@ namespace events {
             return undefined;
         }
 
-
-
         getRegionHandler(event: RegionEvent, kind: number, region: Region) {
             for (const handler of this.regionHandlers) {
                 if (handler.event === event && handler.kind === kind && handler.region.equals(region))
@@ -151,13 +155,53 @@ namespace events {
                 data = sprite.data[SPRITE_DATA_KEY];
                 if (sprite.flags & sprites.Flag.Destroyed || (data.overlappingSprites.length == 0 && data.tiles.length === 0)) {
                     toRemove.push(sprite);
-                    sprite.data[SPRITE_DATA_KEY] = undefined;
                 }
             }
 
             for (const sprite of toRemove) {
                 this.trackedSprites.removeElement(sprite);
             }
+        }
+
+        protected doRegionUpdate() {
+            for (const regionHandler of this.regionHandlers) {
+                for (const sprite of sprites.allOfKind(regionHandler.kind)) {
+                    if (!sprite.data[SPRITE_DATA_KEY]) {
+                        sprite.data[SPRITE_DATA_KEY] = new SpriteEventData(sprite);
+                    }
+                    const currentState: SpriteEventData = sprite.data[SPRITE_DATA_KEY];
+
+                    const regionState = currentState.getRegionEntry(regionHandler.region, true);
+                    const oldFlags = regionState.flag;
+
+                    regionState.flag = regionHandler.region.checkSprite(sprite);
+
+                    if (oldFlags === regionState.flag) continue;
+
+                    if (regionState.flag & TileFlag.Overlapping) {
+                        if (!(oldFlags & TileFlag.Overlapping)) {
+                            this.runRegionHandler(RegionEvent.StartOverlapping, sprite, regionHandler.region)
+                        }
+                    }
+                    else if (oldFlags & TileFlag.Overlapping) {
+                        this.runRegionHandler(RegionEvent.StopOverlapping, sprite, regionHandler.region)
+                    }
+
+                    if (regionState.flag & TileFlag.FullyWithin) {
+                        if (!(oldFlags & TileFlag.FullyWithin)) {
+                            this.runRegionHandler(RegionEvent.Enters, sprite, regionHandler.region)
+                        }
+                    }
+                    else if (oldFlags & TileFlag.FullyWithin) {
+                        this.runRegionHandler(RegionEvent.Exits, sprite, regionHandler.region)
+                    }
+                }
+            }
+        }
+
+        protected runRegionHandler(event: RegionEvent, sprite: Sprite, region: Region) {
+            const handler = this.getRegionHandler(event, sprite.kind(), region);
+            if (handler) handler.handler(sprite);
         }
     }
 
@@ -268,6 +312,8 @@ namespace events {
     //% draggableParameters="reporter"
     //% kind.shadow=spritekind
     //% otherKind.shadow=spritekind
+    //% weight=90
+    //% group="Sprites"
     export function spriteEvent(kind: number, otherKind: number, event: SpriteEvent, handler: (sprite: Sprite, otherSprite: Sprite) => void) {
         init();
 
@@ -308,6 +354,8 @@ namespace events {
     //% draggableParameters="reporter"
     //% kind.shadow=spritekind
     //% tile.shadow=tileset_tile_picker
+    //% weight=100
+    //% group="Tilemaps"
     export function tileEvent(kind: number, tile: Image, event: TileEvent, handler: (sprite: Sprite) => void) {
         init();
 
@@ -423,7 +471,10 @@ namespace events {
     //% block="on $sprite of kind $kind $event $region"
     //% draggableParameters="reporter"
     //% kind.shadow=spritekind
-    //% region.shadow=sprite_event_ext_create_region_from_coordinates
+    //% region.shadow=sprite_event_ext_create_region_from_locations
+    //% afterOnStart
+    //% group="Regions"
+    //% weight=100
     export function regionEvent(kind: number, region: Region, event: RegionEvent, handler: (sprite: Sprite) => void) {
         init();
 
@@ -438,20 +489,40 @@ namespace events {
         );
     }
 
-    //% blockId=sprite_event_ext_create_region_from_coordinates
-    //% block="region left $left top $top right $right bottom $bottom"
-    export function createRegionFromCoordinates(left: number, top: number, right: number, bottom: number): Region {
-        return new Region(left, top, right, bottom);
+    //% blockId=sprite_event_ext_create_coordinate
+    //% block="x $x y $y"
+    //% blockHidden
+    //% group="Regions"
+    export function createCoordinate(x: number, y: number) {
+        return new Coordinate(x, y);
     }
 
-    //% blockId=sprite_event_ext_create_region_from_rectangle
-    //% block="region left $left top $top width $width height $height"
-    export function createRegionFromRectangle(left: number, top: number, width: number, height: number): Region {
-        return new Region(left, top, left + width, top + height);
+    //% blockId=sprite_event_ext_create_region_from_coordinates
+    //% block="region from|$location1 to|$location2"
+    //% location1.shadow=sprite_event_ext_create_coordinate
+    //% location2.shadow=sprite_event_ext_create_coordinate
+    //% inlineInputMode=external
+    //% group="Regions"
+    //% weight=90
+    //% blockGap=8
+    export function createRegionFromCoordinates(location1: Coordinate, location2: Coordinate): Region {
+        return new Region(
+            Math.min(location1.x, location2.x),
+            Math.min(location1.y, location2.y),
+            Math.max(location1.x, location2.x),
+            Math.max(location1.y, location2.y)
+        );
     }
+
 
     //% blockId=sprite_event_ext_create_region_from_locations
-    //% block="region from $location1 to $location2"
+    //% block="region from|$location1 to|$location2"
+    //% location1.shadow=mapgettile
+    //% location2.shadow=mapgettile
+    //% inlineInputMode=external
+    //% group="Regions"
+    //% weight=80
+    //% blockGap=8
     export function createRegionFromLocations(location1: tiles.Location, location2: tiles.Location): Region {
         return new Region(
             Math.min(location1.left, location2.left),

@@ -153,7 +153,7 @@ namespace events {
 
             for (const sprite of this.trackedSprites) {
                 data = sprite.data[SPRITE_DATA_KEY];
-                if (sprite.flags & sprites.Flag.Destroyed || (data.overlappingSprites.length == 0 && data.tiles.length === 0)) {
+                if (sprite.flags & sprites.Flag.Destroyed) {
                     toRemove.push(sprite);
                 }
             }

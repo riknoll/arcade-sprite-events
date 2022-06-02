@@ -45,7 +45,7 @@ namespace events {
     }
 
     export enum WallFlag {
-        //% block="any direction"
+        //% block="in any direction"
         Any = 0xf,
         //% block="bottom"
         Bottom = 1 << 0,

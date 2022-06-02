@@ -45,6 +45,8 @@ namespace events {
     }
 
     export enum WallFlag {
+        //% block="any direction"
+        Any = 0xf,
         //% block="bottom"
         Bottom = 1 << 0,
         //% block="left"
@@ -732,6 +734,8 @@ namespace events {
         if (!flag3) flag3 = 0;
         if (!flag4) flag4 = 0;
 
-        return new WallCondition(flag1 | flag2 | flag3 | flag4, tile);
+        const wallFlag = flag1 | flag2 | flag3 | flag4
+
+        return new WallCondition(wallFlag || WallFlag.Any, tile);
     }
 }

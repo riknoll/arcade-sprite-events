@@ -1,6 +1,6 @@
 //% block="Sprite Events"
 //% color="#03a5fc" icon="\uf005"
-//% groups="['Sprites','Tiles','Regions']"
+//% groups="['Sprites','Tiles','Walls','Regions']"
 namespace events {
     export const SPRITE_DATA_KEY = "@$_events_sprite_data";
 
@@ -37,6 +37,23 @@ namespace events {
         Exits,
     }
 
+    export enum WallEvent {
+        //% block="starts hitting"
+        StartHitting,
+        //% block="stops hitting"
+        StopHitting,
+    }
+
+    export enum WallFlag {
+        //% block="bottom"
+        Bottom = 1 << 0,
+        //% block="left"
+        Left = 1 << 1,
+        //% block="top"
+        Top = 1 << 2,
+        //% block="right"
+        Right = 1 << 3,
+    }
 
     enum TileFlag {
         Overlapping = 1 << 0,
@@ -69,6 +86,10 @@ namespace events {
         }
     }
 
+    export class WallCondition {
+        constructor(public flags: number, public tile: Image) { }
+    }
+
     export class Coordinate {
         constructor(public x: number, public y: number) { }
     }
@@ -77,12 +98,14 @@ namespace events {
         spriteHandlers: SpriteHandlerEntry[];
         tileHandlers: TileHandlerEntry[];
         regionHandlers: RegionHandlerEntry[];
+        wallHandlers: WallHandlerEntry[];
         trackedSprites: Sprite[];
 
         constructor() {
             this.spriteHandlers = [];
             this.tileHandlers = [];
             this.regionHandlers = [];
+            this.wallHandlers = [];
             this.trackedSprites = [];
 
             game.eventContext().registerFrameHandler(scene.PHYSICS_PRIORITY + 1, () => {
@@ -91,6 +114,9 @@ namespace events {
         }
 
         update() {
+            let shouldPruneCurrentState: boolean;
+            let shouldPruneAllStates: boolean;
+
             for (const sprite of this.trackedSprites) {
                 const data = sprite.data[SPRITE_DATA_KEY] as SpriteEventData;
 
@@ -111,6 +137,35 @@ namespace events {
                             game.currentScene().tileMap
                         )
                     }
+                }
+
+                shouldPruneAllStates = false;
+                for (const wallState of data.walls) {
+                    shouldPruneCurrentState = false;
+
+                    for (const tile of wallState.hittingTiles) {
+                        if (!tile.isHitting) shouldPruneCurrentState = true;
+                    }
+
+                    if (shouldPruneCurrentState) {
+                        wallState.hittingTiles = wallState.hittingTiles.filter(wallTileStateIsHitting)
+                    }
+
+                    if (wallState.hittingTiles.length === 0) {
+                        shouldPruneAllStates = true;
+                        const handler = this.getWallHandler(WallEvent.StopHitting, sprite.kind(), wallState.wallFlags, wallState.tile);
+                        if (handler) handler.handler(sprite);
+                    }
+
+                    for (const tile of wallState.hittingTiles) {
+                        // Clear the flag; this will get reset by the wall hit event we registered
+                        // if it's still true next frame
+                        tile.isHitting = false;
+                    }
+                }
+
+                if (shouldPruneAllStates) {
+                    data.walls = data.walls.filter(wallStateIsHitting)
                 }
             }
 
@@ -141,6 +196,15 @@ namespace events {
         getRegionHandler(event: RegionEvent, kind: number, region: Region) {
             for (const handler of this.regionHandlers) {
                 if (handler.event === event && handler.kind === kind && handler.region.equals(region))
+                    return handler;
+            }
+
+            return undefined;
+        }
+
+        getWallHandler(event: WallEvent, kind: number, flags: number, tile: Image) {
+            for (const handler of this.wallHandlers) {
+                if (handler.event === event && handler.kind === kind && handler.condition.flags === flags && (handler.condition.tile === tile || (handler.condition.tile && handler.condition.tile.equals(tile))))
                     return handler;
             }
 
@@ -205,6 +269,14 @@ namespace events {
         }
     }
 
+    function wallTileStateIsHitting(s: WallTileState) {
+        return s.isHitting;
+    }
+
+    function wallStateIsHitting(s: WallState) {
+        return !!s.hittingTiles.length;
+    }
+
     class SpriteHandlerEntry {
         constructor(
             public event: SpriteEvent,
@@ -232,15 +304,26 @@ namespace events {
         ) { }
     }
 
+    class WallHandlerEntry {
+        constructor(
+            public event: WallEvent,
+            public kind: number,
+            public condition: WallCondition,
+            public handler: TileHandler
+        ) { }
+    }
+
     class SpriteEventData {
         overlappingSprites: Sprite[];
         tiles: TileState[];
         regions: RegionState[];
+        walls: WallState[];
 
         constructor(public owner: Sprite) {
             this.overlappingSprites = [];
             this.tiles = [];
             this.regions = [];
+            this.walls = [];
         }
 
         getTileEntry(index: number, createIfMissing = false) {
@@ -272,6 +355,20 @@ namespace events {
 
             return undefined;
         }
+
+        getWallEntry(flags: number, tile: Image, createIfMissing = false) {
+            for (const wallState of this.walls) {
+                if (wallState.wallFlags === flags && (wallState.tile === tile || (wallState.tile && wallState.tile.equals(tile)))) return wallState;
+            }
+
+            if (createIfMissing) {
+                const newEntry = new WallState(tile, flags);
+                this.walls.push(newEntry)
+                return newEntry;
+            }
+
+            return undefined;
+        }
     }
 
     class TileState {
@@ -285,6 +382,19 @@ namespace events {
         flag: number;
         constructor(public region: Region, flag = 0) {
             this.flag = flag;
+        }
+    }
+
+    class WallState {
+        hittingTiles: WallTileState[];
+
+        constructor(public tile: Image, public wallFlags: number) {
+            this.hittingTiles = [];
+        }
+    }
+
+    class WallTileState {
+        constructor(public location: tiles.Location, public isHitting: boolean) {
         }
     }
 
@@ -467,6 +577,70 @@ namespace events {
         if (handler) handler.handler(sprite);
     }
 
+    //% blockId=sprite_event_ext_wall_event
+    //% block="on $sprite of kind $kind $event wall $condition"
+    //% draggableParameters="reporter"
+    //% kind.shadow=spritekind
+    //% condition.shadow=sprite_event_ext_simple_wall_condition
+    //% group="Walls"
+    //% weight=100
+    export function wallEvent(kind: number, condition: WallCondition, event: WallEvent, handler: (sprite: Sprite) => void) {
+        init();
+
+        const existing = state().getWallHandler(event, kind, condition.flags, condition.tile);
+        if (existing) {
+            existing.handler = handler;
+            return;
+        }
+
+        state().wallHandlers.push(
+            new WallHandlerEntry(event, kind, condition, handler)
+        );
+
+        scene.onHitWall(kind, (sprite, location) => {
+            if (condition.tile && !tiles.getTileImage(location).equals(condition.tile)) return;
+
+            // FIXME: probably shouldn't access private members but it's just so darn convenient...
+            const obstacles: sprites.Obstacle[] = (sprite as any)._obstacles;
+
+            let validHit = false;
+            if (condition.flags & WallFlag.Left && obstacles[CollisionDirection.Left] && obstacles[CollisionDirection.Left].x === location.x && obstacles[CollisionDirection.Left].y === location.y) {
+                validHit = true;
+            }
+            else if (condition.flags & WallFlag.Right && obstacles[CollisionDirection.Right] && obstacles[CollisionDirection.Right].x === location.x && obstacles[CollisionDirection.Right].y === location.y) {
+                validHit = true;
+            }
+            else if (condition.flags & WallFlag.Bottom && obstacles[CollisionDirection.Bottom] && obstacles[CollisionDirection.Bottom].x === location.x && obstacles[CollisionDirection.Bottom].y === location.y) {
+                validHit = true;
+            }
+            else if (condition.flags & WallFlag.Top && obstacles[CollisionDirection.Top] && obstacles[CollisionDirection.Top].x === location.x && obstacles[CollisionDirection.Top].y === location.y) {
+                validHit = true;
+            }
+
+            if (!validHit) return;
+
+            let data: SpriteEventData = sprite.data[SPRITE_DATA_KEY];
+
+            if (!data) {
+                data = new SpriteEventData(sprite);
+                sprite.data[SPRITE_DATA_KEY] = data;
+                state().trackedSprites.push(sprite);
+            }
+
+            const wallState = data.getWallEntry(condition.flags, condition.tile, true);
+            const tileState = wallState.hittingTiles.find(t => t.location.col === location.col && t.location.row === location.row);
+
+            if (tileState) {
+                tileState.isHitting = true;
+                return;
+            }
+
+            if (event === WallEvent.StartHitting && !wallState.hittingTiles.length) handler(sprite);
+            wallState.hittingTiles.push(new WallTileState(location, true));
+        });
+    }
+
+
     //% blockId=sprite_event_ext_region_event
     //% block="on $sprite of kind $kind $event $region"
     //% draggableParameters="reporter"
@@ -514,7 +688,6 @@ namespace events {
         );
     }
 
-
     //% blockId=sprite_event_ext_create_region_from_locations
     //% block="region from|$location1 to|$location2"
     //% location1.shadow=mapgettile
@@ -530,5 +703,35 @@ namespace events {
             Math.max(location1.right, location2.right),
             Math.max(location1.bottom, location2.bottom)
         );
+    }
+
+    //% blockId=sprite_event_ext_simple_wall_condition
+    //% block="$flag1||or $flag2 or $flag3 or $flag4"
+    //% group="Walls"
+    //% inlineInputMode=inline
+    //% weight=80
+    //% blockGap=8
+    export function simpleWallCondition(flag1: WallFlag, flag2?: WallFlag, flag3?: WallFlag, flag4?: WallFlag): WallCondition {
+        if (!flag2) flag2 = 0;
+        if (!flag3) flag3 = 0;
+        if (!flag4) flag4 = 0;
+
+        return new WallCondition(flag1 | flag2 | flag3 | flag4, undefined);
+    }
+
+    //% blockId=sprite_event_ext_wall_condition
+    //% block="with tile $tile||on $flag1 or $flag2 or $flag3 or $flag4"
+    //% tile.shadow=tileset_tile_picker
+    //% group="Walls"
+    //% inlineInputMode=inline
+    //% weight=70
+    //% blockGap=8
+    export function wallCondition(tile: Image, flag1?: WallFlag, flag2?: WallFlag, flag3?: WallFlag, flag4?: WallFlag): WallCondition {
+        if (!flag1) flag1 = 0;
+        if (!flag2) flag2 = 0;
+        if (!flag3) flag3 = 0;
+        if (!flag4) flag4 = 0;
+
+        return new WallCondition(flag1 | flag2 | flag3 | flag4, tile);
     }
 }
